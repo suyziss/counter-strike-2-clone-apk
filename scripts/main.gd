@@ -200,7 +200,14 @@ func _add_interactable(label: String, pos: Vector3, color: Color) -> void:
 	text_3d.modulate = Color("#f0edff")
 	marker.add_child(text_3d)
 	map_root.add_child(marker)
-	interactables.append({"node": marker, "label": label, "done": false})
+	var is_done := completed.has(map_name + ":" + label)
+	if is_done:
+		var completed_material := StandardMaterial3D.new()
+		completed_material.albedo_color = Color("#6bca9a")
+		completed_material.emission_enabled = true
+		completed_material.emission = Color("#6bca9a") * 0.35
+		pedestal.material_override = completed_material
+	interactables.append({"node": marker, "label": label, "done": is_done})
 
 func _spawn_player() -> void:
 	player = CharacterBody3D.new()

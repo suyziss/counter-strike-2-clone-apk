@@ -1,59 +1,32 @@
-# Counter Strike 2 Clone
+# Foundry Explorer
 
-Fan-made, unofficial offline tactical FPS project for Android, built with Godot 4.3.4.
+Offline 3D exploration prototype for Android, built with Godot 4.3.
 
-This project is an independent fan clone and is not an official Counter-Strike 2 product and is not affiliated with or endorsed by Valve.
+This branch keeps the procedural Foundry and Harbor environments from the original prototype and changes the gameplay into a non-combat exploration experience.
 
-## Current prototype
+## Features
 
-- Offline 5v5 bot match.
-- 13-round score format.
-- Bomb A/B concept with 40-second timer after planting.
-- Buy phase and economy.
-- 12 procedural weapons.
-- 24 procedural skins and 4 cases.
-- Original procedural maps: Foundry and Harbor.
-- Procedural geometry, lighting, fog and navigation.
-- Android export preset.
-- GitHub Actions workflow for APK builds.
-- No Valve game assets or copied CS2 map files are included.
-
-## Maps
-
-The project deliberately uses original maps rather than redistributing Valve proprietary de_mirage or de_dust2 files. Future updates can add original maps inspired by classic competitive FPS design without copying proprietary assets.
-
-## Build
-
-Pushes to main automatically start the Android APK GitHub Actions workflow.
-
-The workflow exports build/CounterStrike2Clone.apk and uploads it as a GitHub Actions artifact.
-
-For a release, push a tag such as v1.0.0.
-
-## Local development
-
-Open the project in Godot 4.3.4 and run scenes/Main.tscn.
+- Two original procedural locations: Foundry and Harbor.
+- First-person movement on desktop and Android touch controls.
+- Three discoverable data stations in each location.
+- Object inspection with completion feedback.
+- Local progress and camera sensitivity saved with ConfigFile.
+- Dark violet interface palette adapted from the Suyziss visual theme.
+- Android ARM64 export preset.
+- GitHub Actions workflow for APK validation and export.
 
 ## Controls
 
-Development:
-- WASD — move
-- Mouse — look
-- Left mouse — fire
-- R — reload
-- B — buy
-- E — plant bomb
-- Space — jump
+Desktop: WASD to move, mouse to look, E to inspect a nearby station, Escape to pause.
 
-Android UI currently provides fire, reload and shop controls.
+Android: direction buttons to move, drag on the right side to look, and the Inspect button to interact.
 
-## Roadmap
+## Build
 
-- Full dual-stick touch controls.
-- Weapon switching and grenades.
-- Defuse interaction.
-- Better bot navigation, visibility and tactics.
-- Original competitive maps.
-- Procedural audio and VFX.
-- Persistent inventory/settings.
-- More complete Android HUD and safe-area handling.
+Use Godot 4.3 stable with matching export templates, JDK 17, Android SDK platform/build-tools 34, NDK 23.2.8568313, and CMake 3.10.2.4988404.
+
+The Android workflow uploads the generated APK as the FoundryExplorer-Android-APK artifact. A version tag such as v0.2.0 also publishes the APK to GitHub Releases.
+
+## Notes
+
+This is an independent fan-made project and includes no Valve game assets. This branch is an exploration-focused reinterpretation and does not implement combat mechanics.

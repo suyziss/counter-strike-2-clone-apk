@@ -1,59 +1,121 @@
 # Counter Strike 2 Clone
 
-Fan-made, unofficial offline tactical FPS project for Android, built with Godot 4.3.4.
+![Project](https://img.shields.io/badge/Project-Fan--made-7c3aed)
+![Engine](https://img.shields.io/badge/Godot-4.3.x-478cbf)
+![Platform](https://img.shields.io/badge/Platform-Android-3ddc84)
+![Status](https://img.shields.io/badge/Status-In%20development-f59e0b)
 
-This project is an independent fan clone and is not an official Counter-Strike 2 product and is not affiliated with or endorsed by Valve.
+**Counter Strike 2 Clone** is an independent fan-made tactical FPS project for Android, built with Godot.
 
-## Current prototype
+> This is **not an official Counter-Strike 2 product**, is not affiliated with Valve, and does not redistribute Valve proprietary game assets or original CS2 map files.
 
-- Offline 5v5 bot match.
-- 13-round score format.
-- Bomb A/B concept with 40-second timer after planting.
-- Buy phase and economy.
-- 12 procedural weapons.
-- 24 procedural skins and 4 cases.
-- Original procedural maps: Foundry and Harbor.
-- Procedural geometry, lighting, fog and navigation.
-- Android export preset.
-- GitHub Actions workflow for APK builds.
-- No Valve game assets or copied CS2 map files are included.
+## 🎯 Project vision
 
-## Maps
+Build an original mobile tactical FPS experience inspired by the classic competitive 5v5 formula: short rounds, economy, bomb sites, weapon variety, bots, skins, cases and fast Android controls.
 
-The project deliberately uses original maps rather than redistributing Valve proprietary de_mirage or de_dust2 files. Future updates can add original maps inspired by classic competitive FPS design without copying proprietary assets.
+The project uses its **own procedural geometry and original locations** rather than copying proprietary CS2 content.
 
-## Build
+## 🔥 Current prototype
 
-Pushes to main automatically start the Android APK GitHub Actions workflow.
+- ⚔️ Offline **5v5** match with bots
+- 🏁 **13-round** competitive score format
+- 💣 Bomb A/B concept with a **40-second** timer after planting
+- 💰 Buy phase and economy
+- 🔫 **12 procedural weapons**
+- 🎨 **24 procedural skins**
+- 🎁 **4 cases**
+- 🗺️ Original procedural maps: **Foundry** and **Harbor**
+- 🌫️ Procedural lighting, fog, geometry and navigation
+- 📱 Android-oriented UI and touch controls
+- ⚙️ Godot 4.3.x project
+- 🤖 GitHub Actions Android APK workflow
 
-The workflow exports build/CounterStrike2Clone.apk and uploads it as a GitHub Actions artifact.
+## 🌸 Featured character
 
-For a release, push a tag such as v1.0.0.
+The project includes the provided character artwork as a project character/reference asset.
 
-## Local development
+![Featured character](assets/characters/featured-character.jpg)
 
-Open the project in Godot 4.3.4 and run scenes/Main.tscn.
+Character assets are kept separate from the gameplay code so they can later be connected to the inventory, profile, menu and character-selection systems.
 
-## Controls
+## 🗺️ Original maps
 
-Development:
-- WASD — move
-- Mouse — look
-- Left mouse — fire
-- R — reload
-- B — buy
-- E — plant bomb
-- Space — jump
+### Foundry
+Industrial environment with central cover, A/B areas and compact routes designed for tactical engagements.
 
-Android UI currently provides fire, reload and shop controls.
+### Harbor
+Container-yard environment with long lanes, cover blocks, a crane area and separate A/B zones.
 
-## Roadmap
+Both locations are generated from project-owned procedural geometry.
 
-- Full dual-stick touch controls.
-- Weapon switching and grenades.
-- Defuse interaction.
-- Better bot navigation, visibility and tactics.
-- Original competitive maps.
-- Procedural audio and VFX.
-- Persistent inventory/settings.
-- More complete Android HUD and safe-area handling.
+## 🎮 Controls
+
+### Desktop
+- **WASD** — movement
+- **Mouse** — look
+- **Left mouse** — fire
+- **R** — reload
+- **B** — buy
+- **E** — plant/use
+- **Space** — jump
+
+### Android
+The project is being prepared around touch-first controls, including movement, aiming, fire, reload and shop actions.
+
+## 🧩 Project structure
+
+```
+counter-strike-2-clone-apk/
+├── .github/workflows/     # Android CI/CD
+├── assets/characters/     # Character artwork
+├── scenes/                # Godot scenes
+├── scripts/               # Gameplay and data
+├── project.godot
+├── export_presets.cfg
+└── README.md
+```
+
+## 🛠️ Local development
+
+1. Install Godot 4.3.x.
+2. Open this repository as a Godot project.
+3. Run `scenes/Main.tscn`.
+4. For Android, install matching Android export templates and SDK tools.
+
+## 📦 Android build
+
+The repository contains a GitHub Actions workflow for Android export.
+
+The intended output is:
+
+```
+build/CounterStrike2Clone.apk
+```
+
+APK artifacts are uploaded by GitHub Actions when the export job succeeds.
+
+## 🚧 Roadmap
+
+- [ ] Full dual-stick Android controls
+- [ ] Weapon switching and grenades
+- [ ] Proper bomb planting/defusing flow
+- [ ] Better bot navigation, visibility and tactics
+- [ ] More original competitive maps
+- [ ] Procedural audio and VFX
+- [ ] Persistent inventory and settings
+- [ ] Character/profile system
+- [ ] Improved Android HUD and safe-area handling
+- [ ] Stable release APK
+
+## ⚖️ Fan-project notice
+
+This repository is an independent fan project. It is **not sponsored, endorsed, licensed or affiliated with Valve**.
+
+No Valve game assets, copied CS2 map files, or proprietary game data are included in this repository. The goal is to create an original game using procedural and project-owned content.
+
+---
+
+**Project:** Counter Strike 2 Clone  
+**Engine:** Godot 4.3.x  
+**Target:** Android / offline FPS  
+**Developer:** Suyziss

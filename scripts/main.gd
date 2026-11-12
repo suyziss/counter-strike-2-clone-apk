@@ -23,6 +23,7 @@ var look_touch_id := -1
 var message_text := ""
 var message_timer := 0.0
 var is_running := false
+var current_menu := "main"
 
 func _ready() -> void:
 	_load_settings()
@@ -48,7 +49,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		_rotate_view(event.relative)
 	elif event is InputEventScreenDrag:
-		if event.position.x > get_viewport().get_visible_rect().size.x * 0.42:
+		if event.index == look_touch_id and event.position.x > get_viewport().get_visible_rect().size.x * 0.42:
 			_rotate_view(event.relative)
 	elif event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_ESCAPE:
@@ -310,6 +311,7 @@ func _make_button(text_value: String, size: Vector2) -> Button:
 	return button
 
 func _show_main_menu() -> void:
+	current_menu = "main"
 	is_running = false
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	_create_menu_panel()
@@ -322,6 +324,7 @@ func _show_main_menu() -> void:
 	_menu_button(column, "ВЫХОД", func(): get_tree().quit())
 
 func _show_pause_menu() -> void:
+	current_menu = "pause"
 	is_running = false
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	_create_menu_panel()
@@ -399,6 +402,7 @@ func _resume_exploration() -> void:
 	_update_hud()
 
 func _show_map_select() -> void:
+	current_menu = "map_select"
 	_create_menu_panel()
 	var column := _menu_column()
 	_add_menu_title(column, "ВЫБОР ЛОКАЦИИ", "Выбери площадку для исследования")
@@ -407,6 +411,8 @@ func _show_map_select() -> void:
 	_menu_button(column, "НАЗАД", _show_pause_menu)
 
 func _show_settings() -> void:
+	var return_screen := current_menu
+	current_menu = "settings"
 	_create_menu_panel()
 	var column := _menu_column()
 	_add_menu_title(column, "НАСТРОЙКИ", "Чувствительность камеры")
@@ -426,10 +432,13 @@ func _show_settings() -> void:
 	)
 	column.add_child(slider)
 	_menu_button(column, "ГОТОВО", func():
-		if is_running:
-			_show_pause_menu()
-		else:
-			_show_main_menu()
+		match return_screen:
+			"pause":
+				_show_pause_menu()
+			"map_select":
+				_show_map_select()
+			_:
+				_show_main_menu()
 	)
 
 func _handle_player(delta: float) -> void:

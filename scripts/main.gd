@@ -1,561 +1,510 @@
 extends Node3D
 
-const D := BPData
-var rng := RandomNumberGenerator.new()
+const SAVE_PATH := "user://exploration.cfg"
+const WALK_SPEED := 5.0
+const INTERACT_DISTANCE := 3.2
+
 var player: CharacterBody3D
-var bots: Array[CharacterBody3D] = []
-var round_time := 115.0
-var buy_time := 15.0
-var bomb_time := -1.0
-var round_no := 1
-var attack_score := 0
-var defense_score := 0
-var credits := 999999999
-var infinite_credits := true
-var phase := "buy"
-var bomb_planted := false
-var bomb_site := "A"
-var weapon_name := "Viper-9"
-var ammo := 15
-var reserve := 90
-var sensitivity := 0.004
-var touch_move := Vector2.ZERO
-var touch_look := Vector2.ZERO
-var fire_pressed := false
-var ui: CanvasLayer
-var hud: VBoxContainer
-var status_label: Label
-var money_label: Label
-var weapon_label: Label
-var crosshair: Label
-var menu: Control
-var menu_stack: Array[Control] = []
+var head: Node3D
+var camera: Camera3D
 var map_root: Node3D
-var world_env: WorldEnvironment
+var ui_layer: CanvasLayer
+var ui_root: Control
+var menu: Control
+var hud_label: Label
+var objective_label: Label
+var prompt_label: Label
+var map_name := "Foundry"
+var sensitivity := 0.0035
+var completed: Array = []
+var interactables: Array[Dictionary] = []
+var touch_state := {"forward": false, "back": false, "left": false, "right": false}
+var look_touch_id := -1
+var message_text := ""
+var message_timer := 0.0
+var is_running := false
 
 func _ready() -> void:
- rng.randomize()
- _build_world("Foundry")
- _spawn_player()
- _spawn_bots()
- _build_ui()
- _show_main_menu()
+	_load_settings()
+	_load_progress()
+	_build_world(map_name)
+	_spawn_player()
+	_build_ui()
+	_show_main_menu()
 
 func _process(delta: float) -> void:
- if menu != null and menu.visible:
-  return
- if phase == "buy":
-  buy_time -= delta
-  if buy_time <= 0.0:
-   phase = "live"
-   status_label.text = "РАУНД НАЧАЛСЯ"
- elif phase == "live":
-  round_time -= delta
-  if round_time <= 0.0:
-   _end_round(false, "Время вышло")
- elif phase == "bomb":
-  round_time -= delta
-  bomb_time -= delta
-  if bomb_time <= 0.0:
-   _explode_bomb()
- _update_hud()
- _handle_player(delta)
- _update_bots(delta)
+	if message_timer > 0.0:
+		message_timer = maxf(0.0, message_timer - delta)
+	if menu != null and is_instance_valid(menu) and menu.visible:
+		return
+	if not is_running:
+		return
+	_handle_player(delta)
+	_update_hud()
 
-func _build_world(map_name: String) -> void:
- map_root = Node3D.new()
- map_root.name = map_name
- add_child(map_root)
- world_env = WorldEnvironment.new()
- var env := Environment.new()
- env.background_mode = Environment.BG_COLOR
- env.background_color = Color("#101821")
- env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
- env.ambient_light_color = Color("#b8c7d9")
- env.ambient_light_energy = 0.42
- env.fog_enabled = true
- env.fog_light_color = Color("#8793a0")
- env.fog_density = 0.008
- world_env.environment = env
- map_root.add_child(world_env)
- var sun := DirectionalLight3D.new()
- sun.rotation_degrees = Vector3(-52,-28,0)
- sun.light_energy = 1.2
- sun.shadow_enabled = true
- map_root.add_child(sun)
- _box("Floor", Vector3(0,-1,0), Vector3(60,2,40), Color("#30383e"))
- if map_name == "Foundry":
-  _foundry()
- else:
-  _harbor()
- _make_nav()
+func _unhandled_input(event: InputEvent) -> void:
+	if not is_running:
+		return
+	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+		_rotate_view(event.relative)
+	elif event is InputEventScreenDrag:
+		if event.position.x > get_viewport().get_visible_rect().size.x * 0.42:
+			_rotate_view(event.relative)
+	elif event is InputEventKey and event.pressed and not event.echo:
+		if event.keycode == KEY_ESCAPE:
+			_show_pause_menu()
+		elif event.keycode == KEY_E:
+			_interact()
+	elif event is InputEventScreenTouch:
+		if event.pressed:
+			if event.position.x > get_viewport().get_visible_rect().size.x * 0.42:
+				look_touch_id = event.index
+		elif event.index == look_touch_id:
+			look_touch_id = -1
 
-func _foundry() -> void:
- for p in [Vector3(-24,2,0),Vector3(24,2,0),Vector3(0,2,-17),Vector3(0,2,17)]:
-  _box("Wall",p,Vector3(2,6,32) if abs(p.x)>20 else Vector3(32,6,2),Color("#59616a"))
- for p in [Vector3(-10,1,0),Vector3(10,1,0),Vector3(0,1,-7),Vector3(0,1,7),Vector3(-18,1,-8),Vector3(18,1,8)]:
-  _box("Cover",p,Vector3(5,3,2.2),Color("#4b555d"))
- _box("A_Site",Vector3(17,0.1,-10),Vector3(8,0.2,7),Color("#5c4b2e"))
- _box("B_Site",Vector3(-17,0.1,10),Vector3(8,0.2,7),Color("#304e5c"))
+func _rotate_view(delta: Vector2) -> void:
+	if player == null or head == null:
+		return
+	player.rotate_y(-delta.x * sensitivity)
+	head.rotation.x = clampf(head.rotation.x - delta.y * sensitivity, -1.25, 1.25)
 
-func _harbor() -> void:
- _box("NorthWall",Vector3(0,2,-18),Vector3(56,6,2),Color("#4f5961"))
- _box("SouthWall",Vector3(0,2,18),Vector3(56,6,2),Color("#4f5961"))
- _box("Crane",Vector3(18,4,0),Vector3(3,8,3),Color("#7a6b45"))
- for x in [-22,-14,-6,2,10,18]:
-  _box("Container",Vector3(x,1,-8),Vector3(6,4,3),Color("#4d5965"))
-  _box("Container",Vector3(x,1,8),Vector3(6,4,3),Color("#465762"))
- _box("A_Site",Vector3(17,0.1,-12),Vector3(9,0.2,6),Color("#5c4b2e"))
- _box("B_Site",Vector3(-17,3.1,12),Vector3(9,0.2,6),Color("#304e5c"))
- _box("Ramp",Vector3(-10,1.5,12),Vector3(12,1,4),Color("#60686d"))
+func _load_settings() -> void:
+	var cfg := ConfigFile.new()
+	if cfg.load(SAVE_PATH) == OK:
+		sensitivity = float(cfg.get_value("settings", "sensitivity", sensitivity))
 
-func _box(n:String, pos:Vector3, size:Vector3, color:Color) -> StaticBody3D:
- var body := StaticBody3D.new()
- body.name = n
- body.position = pos
- var mesh := MeshInstance3D.new()
- var bm := BoxMesh.new()
- bm.size = size
- mesh.mesh = bm
- var mat := StandardMaterial3D.new()
- mat.albedo_color = color
- mat.roughness = 0.85
- mesh.material_override = mat
- body.add_child(mesh)
- var cs := CollisionShape3D.new()
- var shape := BoxShape3D.new()
- shape.size = size
- cs.shape = shape
- body.add_child(cs)
- map_root.add_child(body)
- return body
+func _load_progress() -> void:
+	var cfg := ConfigFile.new()
+	if cfg.load(SAVE_PATH) == OK:
+		map_name = str(cfg.get_value("progress", "map", "Foundry"))
+		var saved: Variant = cfg.get_value("progress", "completed", [])
+		if saved is Array:
+			completed = saved.duplicate()
+	if map_name != "Foundry" and map_name != "Harbor":
+		map_name = "Foundry"
 
-func _make_nav() -> void:
- var region := NavigationRegion3D.new()
- var nav := NavigationMesh.new()
- nav.vertices = PackedVector3Array([
-  Vector3(-28,0,-18),Vector3(28,0,-18),Vector3(28,0,18),Vector3(-28,0,18)
- ])
- nav.add_polygon(PackedInt32Array([0,1,2,3]))
- region.navigation_mesh = nav
- map_root.add_child(region)
+func _save_data() -> void:
+	var cfg := ConfigFile.new()
+	cfg.set_value("settings", "sensitivity", sensitivity)
+	cfg.set_value("progress", "map", map_name)
+	cfg.set_value("progress", "completed", completed)
+	cfg.save(SAVE_PATH)
+
+func _build_world(selected_map: String) -> void:
+	if map_root != null and is_instance_valid(map_root):
+		map_root.queue_free()
+	interactables.clear()
+	map_root = Node3D.new()
+	map_root.name = selected_map
+	add_child(map_root)
+
+	var world_env := WorldEnvironment.new()
+	var env := Environment.new()
+	env.background_mode = Environment.BG_COLOR
+	env.background_color = Color("#10131d")
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	env.ambient_light_color = Color("#b7b4d5")
+	env.ambient_light_energy = 0.55
+	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	env.fog_enabled = true
+	env.fog_light_color = Color("#85849c")
+	env.fog_density = 0.006
+	world_env.environment = env
+	map_root.add_child(world_env)
+
+	var sun := DirectionalLight3D.new()
+	sun.rotation_degrees = Vector3(-48.0, -28.0, 0.0)
+	sun.light_energy = 1.15
+	sun.shadow_enabled = true
+	map_root.add_child(sun)
+
+	_box("Ground", Vector3(0, -1, 0), Vector3(60, 2, 40), Color("#30323d"))
+	if selected_map == "Foundry":
+		_build_foundry()
+	else:
+		_build_harbor()
+	_add_interactable("Станция навигации", Vector3(-14, 0.0, -10), Color("#8f75ff"))
+	_add_interactable("Архивный терминал", Vector3(14, 0.0, 10), Color("#69c5d8"))
+	_add_interactable("Маяк связи", Vector3(0, 0.0, -14), Color("#d6a5ff"))
+
+func _build_foundry() -> void:
+	for p in [Vector3(-24, 2, 0), Vector3(24, 2, 0), Vector3(0, 2, -17), Vector3(0, 2, 17)]:
+		var size := Vector3(2, 6, 32) if absf(p.x) > 20.0 else Vector3(32, 6, 2)
+		_box("Foundry perimeter", p, size, Color("#555663"))
+	for p in [Vector3(-10, 1, 0), Vector3(10, 1, 0), Vector3(0, 1, -7), Vector3(0, 1, 7), Vector3(-18, 1, -8), Vector3(18, 1, 8)]:
+		_box("Storage block", p, Vector3(5, 3, 2.2), Color("#464957"))
+	_box("Workshop platform", Vector3(17, 0.1, -10), Vector3(8, 0.2, 7), Color("#62543f"))
+	_box("Cooling platform", Vector3(-17, 0.1, 10), Vector3(8, 0.2, 7), Color("#344f5c"))
+	_box("Central structure", Vector3(0, 2, 0), Vector3(5, 4, 5), Color("#6a6878"))
+
+func _build_harbor() -> void:
+	_box("North wall", Vector3(0, 2, -18), Vector3(56, 6, 2), Color("#4d5965"))
+	_box("South wall", Vector3(0, 2, 18), Vector3(56, 6, 2), Color("#4d5965"))
+	_box("Crane base", Vector3(18, 4, 0), Vector3(3, 8, 3), Color("#786b50"))
+	for x in [-22, -14, -6, 2, 10, 18]:
+		_box("Container", Vector3(x, 1, -8), Vector3(6, 4, 3), Color("#4b5967"))
+		_box("Container", Vector3(x, 1, 8), Vector3(6, 4, 3), Color("#46545f"))
+	_box("Pier deck", Vector3(17, 0.1, -12), Vector3(9, 0.2, 6), Color("#62543f"))
+	_box("Loading platform", Vector3(-17, 3.1, 12), Vector3(9, 0.2, 6), Color("#344f5c"))
+	_box("Ramp", Vector3(-10, 1.5, 12), Vector3(12, 1, 4), Color("#606875"))
+
+func _box(label: String, pos: Vector3, size: Vector3, color: Color) -> StaticBody3D:
+	var body := StaticBody3D.new()
+	body.name = label
+	body.position = pos
+	var mesh := MeshInstance3D.new()
+	var box_mesh := BoxMesh.new()
+	box_mesh.size = size
+	mesh.mesh = box_mesh
+	var material := StandardMaterial3D.new()
+	material.albedo_color = color
+	material.roughness = 0.88
+	mesh.material_override = material
+	body.add_child(mesh)
+	var collision := CollisionShape3D.new()
+	var shape := BoxShape3D.new()
+	shape.size = size
+	collision.shape = shape
+	body.add_child(collision)
+	map_root.add_child(body)
+	return body
+
+func _add_interactable(label: String, pos: Vector3, color: Color) -> void:
+	var marker := Node3D.new()
+	marker.name = label
+	marker.position = pos
+	var pedestal := MeshInstance3D.new()
+	var cylinder := CylinderMesh.new()
+	cylinder.top_radius = 0.48
+	cylinder.bottom_radius = 0.58
+	cylinder.height = 1.05
+	pedestal.mesh = cylinder
+	var material := StandardMaterial3D.new()
+	material.albedo_color = color
+	material.emission_enabled = true
+	material.emission = color * 0.28
+	pedestal.material_override = material
+	pedestal.position.y = 0.55
+	marker.add_child(pedestal)
+	var beacon := OmniLight3D.new()
+	beacon.light_color = color
+	beacon.light_energy = 0.7
+	beacon.omni_range = 4.5
+	beacon.position.y = 1.25
+	marker.add_child(beacon)
+	var text_3d := Label3D.new()
+	text_3d.text = label
+	text_3d.position.y = 1.55
+	text_3d.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	text_3d.font_size = 32
+	text_3d.modulate = Color("#f0edff")
+	marker.add_child(text_3d)
+	map_root.add_child(marker)
+	interactables.append({"node": marker, "label": label, "done": false})
 
 func _spawn_player() -> void:
- player = CharacterBody3D.new()
- player.name = "Player"
- player.position = Vector3(0,1,14)
- player.collision_layer = 2
- player.collision_mask = 1
- var cs := CollisionShape3D.new()
- var capsule := CapsuleShape3D.new()
- capsule.radius = 0.35
- capsule.height = 1.8
- cs.shape = capsule
- player.add_child(cs)
- var head := Node3D.new()
- head.name = "Head"
- head.position.y = 0.65
- player.add_child(head)
- var cam := Camera3D.new()
- cam.current = true
- cam.position = Vector3(0,0.55,0)
- head.add_child(cam)
- _make_gun_model(head)
- add_child(player)
-
-func _make_gun_model(parent:Node3D) -> void:
- var gun := Node3D.new()
- gun.name = "WeaponModel"
- gun.position = Vector3(0.34,-0.28,-0.55)
- parent.add_child(gun)
- _gun_box(gun,Vector3(0,0,0),Vector3(0.16,0.18,0.65),Color("#20252b"))
- _gun_box(gun,Vector3(0,-0.16,0.05),Vector3(0.13,0.34,0.18),Color("#161a1e"))
- _gun_box(gun,Vector3(0,0,-0.45),Vector3(0.08,0.08,0.45),Color("#8d969f"))
-
-func _gun_box(parent:Node3D,pos:Vector3,size:Vector3,color:Color)->void:
- var m:=MeshInstance3D.new()
- var b:=BoxMesh.new()
- b.size=size
- m.mesh=b
- var mat:=StandardMaterial3D.new()
- mat.albedo_color=color
- m.material_override=mat
- m.position=pos
- parent.add_child(m)
-
-func _spawn_bots() -> void:
- for i in 10:
-  var b:=CharacterBody3D.new()
-  b.name="Bot_%02d"%i
-  b.position=Vector3(-20 + (i%5)*10,1,-10 + (i/5)*20)
-  b.collision_layer=4
-  b.collision_mask=1
-  var cs:=CollisionShape3D.new()
-  var sh:=CapsuleShape3D.new()
-  sh.radius=.35
-  sh.height=1.8
-  cs.shape=sh
-  b.add_child(cs)
-  var body:=MeshInstance3D.new()
-  var cm:=CapsuleMesh.new()
-  cm.radius=.35
-  cm.height=1.8
-  body.mesh=cm
-  var mat:=StandardMaterial3D.new()
-  mat.albedo_color=Color("#4b6b7d") if i<5 else Color("#8a4f4f")
-  body.material_override=mat
-  b.add_child(body)
-  var agent:=NavigationAgent3D.new()
-  agent.path_height_offset=0.5
-  b.add_child(agent)
-  add_child(b)
-  bots.append(b)
+	player = CharacterBody3D.new()
+	player.name = "Explorer"
+	player.position = Vector3(0, 1, 14)
+	player.floor_snap_length = 0.25
+	var collision := CollisionShape3D.new()
+	var capsule := CapsuleShape3D.new()
+	capsule.radius = 0.36
+	capsule.height = 1.8
+	collision.shape = capsule
+	player.add_child(collision)
+	head = Node3D.new()
+	head.name = "Head"
+	head.position.y = 0.62
+	player.add_child(head)
+	camera = Camera3D.new()
+	camera.current = true
+	camera.fov = 78.0
+	camera.position = Vector3(0, 0.55, 0)
+	head.add_child(camera)
+	add_child(player)
 
 func _build_ui() -> void:
- ui=CanvasLayer.new()
- add_child(ui)
- var root:=Control.new()
- root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
- ui.add_child(root)
- crosshair=Label.new()
- crosshair.text="+"
- crosshair.horizontal_alignment=HORIZONTAL_ALIGNMENT_CENTER
- crosshair.add_theme_font_size_override("font_size",28)
- crosshair.position=Vector2(620,340)
- root.add_child(crosshair)
- hud=VBoxContainer.new()
- hud.position=Vector2(24,20)
- root.add_child(hud)
- status_label=Label.new()
- status_label.add_theme_font_size_override("font_size",22)
- hud.add_child(status_label)
- money_label=Label.new()
- hud.add_child(money_label)
- weapon_label=Label.new()
- hud.add_child(weapon_label)
- var touch:=TouchScreenButton.new()
- touch.position=Vector2(24,520)
- touch.size=Vector2(220,160)
- touch.action="move_forward"
- root.add_child(touch)
- var fire:=Button.new()
- fire.text="ОГОНЬ"
- fire.position=Vector2(1080,500)
- fire.size=Vector2(150,90)
- fire.pressed.connect(_fire)
- root.add_child(fire)
- var reload_b:=Button.new()
- reload_b.text="ПЕРЕЗАРЯДКА"
- reload_b.position=Vector2(900,600)
- reload_b.size=Vector2(170,70)
- reload_b.pressed.connect(_reload)
- root.add_child(reload_b)
- var buy_b:=Button.new()
- buy_b.text="МАГАЗИН"
- buy_b.position=Vector2(24,620)
- buy_b.size=Vector2(160,60)
- buy_b.pressed.connect(_show_buy)
- root.add_child(buy_b)
+	ui_layer = CanvasLayer.new()
+	add_child(ui_layer)
+	ui_root = Control.new()
+	ui_root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	ui_layer.add_child(ui_root)
+
+	hud_label = Label.new()
+	hud_label.position = Vector2(24, 20)
+	hud_label.add_theme_font_size_override("font_size", 22)
+	hud_label.add_theme_color_override("font_color", Color("#f3efff"))
+	ui_root.add_child(hud_label)
+
+	objective_label = Label.new()
+	objective_label.position = Vector2(24, 58)
+	objective_label.add_theme_font_size_override("font_size", 16)
+	objective_label.add_theme_color_override("font_color", Color("#c6bddf"))
+	ui_root.add_child(objective_label)
+
+	prompt_label = Label.new()
+	prompt_label.anchor_left = 0.25
+	prompt_label.anchor_right = 0.75
+	prompt_label.anchor_top = 0.82
+	prompt_label.anchor_bottom = 0.91
+	prompt_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	prompt_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	prompt_label.add_theme_font_size_override("font_size", 20)
+	prompt_label.add_theme_color_override("font_color", Color("#ffffff"))
+	ui_root.add_child(prompt_label)
+
+	_add_hold_button("↑", Vector2(76, -210), "forward")
+	_add_hold_button("←", Vector2(8, -140), "left")
+	_add_hold_button("↓", Vector2(76, -140), "back")
+	_add_hold_button("→", Vector2(144, -140), "right")
+	var interact_button := _make_button("ОСМОТРЕТЬ", Vector2(170, 74))
+	interact_button.anchor_left = 1.0
+	interact_button.anchor_right = 1.0
+	interact_button.anchor_top = 1.0
+	interact_button.anchor_bottom = 1.0
+	interact_button.offset_left = -220
+	interact_button.offset_right = -28
+	interact_button.offset_top = -118
+	interact_button.offset_bottom = -34
+	interact_button.pressed.connect(_interact)
+	ui_root.add_child(interact_button)
+
+func _add_hold_button(text_value: String, offset: Vector2, direction: String) -> void:
+	var button := _make_button(text_value, Vector2(64, 64))
+	button.anchor_left = 0.0
+	button.anchor_right = 0.0
+	button.anchor_top = 1.0
+	button.anchor_bottom = 1.0
+	button.offset_left = offset.x
+	button.offset_right = offset.x + 64.0
+	button.offset_top = offset.y
+	button.offset_bottom = offset.y + 64.0
+	button.button_down.connect(func(): touch_state[direction] = true)
+	button.button_up.connect(func(): touch_state[direction] = false)
+	ui_root.add_child(button)
+
+func _make_button(text_value: String, size: Vector2) -> Button:
+	var button := Button.new()
+	button.text = text_value
+	button.custom_minimum_size = size
+	button.focus_mode = Control.FOCUS_NONE
+	button.add_theme_font_size_override("font_size", 18)
+	var normal := StyleBoxFlat.new()
+	normal.bg_color = Color("#292536")
+	normal.border_color = Color("#8d78d6")
+	normal.set_border_width_all(1)
+	normal.set_corner_radius_all(12)
+	button.add_theme_stylebox_override("normal", normal)
+	var hover := normal.duplicate()
+	hover.bg_color = Color("#3a3151")
+	button.add_theme_stylebox_override("hover", hover)
+	button.add_theme_stylebox_override("pressed", hover)
+	return button
 
 func _show_main_menu() -> void:
- menu=Panel.new()
- menu.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
- menu.modulate=Color("#0b1118")
- ui.add_child(menu)
- var title:=Label.new()
- title.text="COUNTER STRIKE 2 CLONE"
- title.position=Vector2(0,80)
- title.size=Vector2(1280,80)
- title.horizontal_alignment=HORIZONTAL_ALIGNMENT_CENTER
- title.add_theme_font_size_override("font_size",48)
- menu.add_child(title)
- var subtitle:=Label.new()
- subtitle.text="Fan-made • unofficial • not affiliated with Valve"
- subtitle.position=Vector2(0,145)
- subtitle.size=Vector2(1280,35)
- subtitle.horizontal_alignment=HORIZONTAL_ALIGNMENT_CENTER
- menu.add_child(subtitle)
- var buttons:=VBoxContainer.new()
- buttons.position=Vector2(450,220)
- buttons.size=Vector2(380,400)
- menu.add_child(buttons)
- _menu_button(buttons,"ИГРАТЬ",_start_match)
- _menu_button(buttons,"КЕЙСЫ",_show_cases)
- _menu_button(buttons,"ИНВЕНТАРЬ",_show_inventory)
- _menu_button(buttons,"МАГАЗИН",_show_buy)
- _menu_button(buttons,"НАСТРОЙКИ",_show_settings)
- _menu_button(buttons,"ВЫХОД",func(): get_tree().quit())
+	is_running = false
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	_create_menu_panel()
+	var column := _menu_column()
+	_add_menu_title(column, "FOUNDRY EXPLORER", "Исследуй две процедурные локации и восстанови данные объектов")
+	_menu_button(column, "ПРОДОЛЖИТЬ — " + map_name, func(): _resume_exploration())
+	_menu_button(column, "НОВАЯ ЭКСПЕДИЦИЯ: FOUNDRY", func(): _start_exploration("Foundry", true))
+	_menu_button(column, "НОВАЯ ЭКСПЕДИЦИЯ: HARBOR", func(): _start_exploration("Harbor", true))
+	_menu_button(column, "НАСТРОЙКИ", _show_settings)
+	_menu_button(column, "ВЫХОД", func(): get_tree().quit())
 
-func _menu_button(parent:Container,text_value:String,cb:Callable)->void:
- var b:=Button.new()
- b.text=text_value
- b.custom_minimum_size=Vector2(360,55)
- b.add_theme_font_size_override("font_size",22)
- b.pressed.connect(cb)
- parent.add_child(b)
+func _show_pause_menu() -> void:
+	is_running = false
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	_create_menu_panel()
+	var column := _menu_column()
+	_add_menu_title(column, "ПАУЗА", "Прогресс сохраняется автоматически")
+	_menu_button(column, "ПРОДОЛЖИТЬ", func(): _resume_exploration())
+	_menu_button(column, "ВЫБРАТЬ ЛОКАЦИЮ", _show_map_select)
+	_menu_button(column, "НАСТРОЙКИ", _show_settings)
+	_menu_button(column, "ГЛАВНОЕ МЕНЮ", _show_main_menu)
 
-func _start_match()->void:
- menu.hide()
- phase="buy"
- buy_time=15.0
- round_time=115.0
- status_label.text="ЗАКУПКА 15"
- for b in bots:
-  b.position=Vector3(-20 + (bots.find(b)%5)*10,1,-10 + (bots.find(b)/5)*20)
+func _create_menu_panel() -> void:
+	if menu != null and is_instance_valid(menu):
+		menu.queue_free()
+	menu = Panel.new()
+	menu.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.035, 0.04, 0.065, 0.96)
+	style.border_color = Color("#8d78d6")
+	style.set_border_width_all(1)
+	menu.add_theme_stylebox_override("panel", style)
+	ui_root.add_child(menu)
 
-func _show_buy()->void:
- _open_panel("МАГАЗИН",true)
- var c:=menu_stack[-1]
- var box:=VBoxContainer.new()
- box.position=Vector2(300,120)
- box.size=Vector2(680,520)
- c.add_child(box)
- for n in D.WEAPONS.keys():
-  var w=D.WEAPONS[n]
-  var b:=Button.new()
-  b.text="%s  |  %d cr | dmg %d | %d RPM"%[n,w.price,w.damage,w.rpm]
-  b.custom_minimum_size=Vector2(650,48)
-  b.pressed.connect(func(): _buy_weapon(n))
-  box.add_child(b)
- var close:=Button.new()
- close.text="ЗАКРЫТЬ"
- close.pressed.connect(_close_panel)
- box.add_child(close)
+func _menu_column() -> VBoxContainer:
+	var column := VBoxContainer.new()
+	column.anchor_left = 0.5
+	column.anchor_right = 0.5
+	column.anchor_top = 0.5
+	column.anchor_bottom = 0.5
+	column.offset_left = -220
+	column.offset_right = 220
+	column.offset_top = -245
+	column.offset_bottom = 245
+	column.add_theme_constant_override("separation", 12)
+	menu.add_child(column)
+	return column
 
-func _buy_weapon(n:String)->void:
- if phase!="buy":
-  return
- var price:int=D.WEAPONS[n].price
- if infinite_credits or credits>=price:
-  if not infinite_credits: credits-=price
-  weapon_name=n
-  ammo=D.WEAPONS[n].mag
-  reserve=D.WEAPONS[n].reserve
-  _close_panel()
+func _add_menu_title(parent: VBoxContainer, title_text: String, subtitle: String) -> void:
+	var title := Label.new()
+	title.text = title_text
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 30)
+	title.add_theme_color_override("font_color", Color("#c9b9ff"))
+	parent.add_child(title)
+	var description := Label.new()
+	description.text = subtitle
+	description.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	description.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	description.add_theme_font_size_override("font_size", 14)
+	description.add_theme_color_override("font_color", Color("#c5c1d1"))
+	parent.add_child(description)
 
-func _show_inventory()->void:
- _open_panel("ИНВЕНТАРЬ",false)
- var c:=menu_stack[-1]
- var grid:=GridContainer.new()
- grid.columns=4
- grid.position=Vector2(170,130)
- grid.size=Vector2(940,470)
- c.add_child(grid)
- for s in D.SKINS:
-  var b:=Button.new()
-  b.text=s[0]+"\n"+s[1]
-  b.custom_minimum_size=Vector2(220,100)
-  b.add_theme_color_override("font_color",D.rarity_color(s[1]))
-  b.pressed.connect(func(): _apply_skin(s))
-  grid.add_child(b)
- var close:=Button.new()
- close.text="ЗАКРЫТЬ"
- close.position=Vector2(560,620)
- close.pressed.connect(_close_panel)
- c.add_child(close)
+func _menu_button(parent: VBoxContainer, text_value: String, callback: Callable) -> void:
+	var button := _make_button(text_value, Vector2(420, 54))
+	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	button.pressed.connect(callback)
+	parent.add_child(button)
 
-func _apply_skin(s:Array)->void:
- status_label.text="Скин: "+s[0]
+func _start_exploration(selected_map: String, reset_progress: bool) -> void:
+	map_name = selected_map
+	if reset_progress:
+		completed.clear()
+	_build_world(map_name)
+	player.global_position = Vector3(0, 1, 14)
+	player.velocity = Vector3.ZERO
+	player.rotation = Vector3.ZERO
+	head.rotation = Vector3.ZERO
+	_save_data()
+	_resume_exploration()
 
-func _show_cases()->void:
- _open_panel("КЕЙСЫ",false)
- var c:=menu_stack[-1]
- var grid:=GridContainer.new()
- grid.columns=2
- grid.position=Vector2(300,130)
- c.add_child(grid)
- for case_name in D.CASES.keys():
-  var b:=Button.new()
-  b.text=case_name+"\nШансы: 48/28/15/7.5/2%"
-  b.custom_minimum_size=Vector2(300,130)
-  b.pressed.connect(func(): _open_case(case_name))
-  grid.add_child(b)
- var close:=Button.new()
- close.text="ЗАКРЫТЬ"
- close.position=Vector2(560,600)
- close.pressed.connect(_close_panel)
- c.add_child(close)
+func _resume_exploration() -> void:
+	if menu != null and is_instance_valid(menu):
+		menu.hide()
+	is_running = true
+	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED if not OS.has_feature("mobile") else Input.MOUSE_MODE_VISIBLE
+	_update_hud()
 
-func _open_case(case_name:String)->void:
- var ids:Array=D.CASES[case_name]
- var pick:int=ids[rng.randi_range(0,ids.size()-1)]
- var item:Array=D.SKINS[pick]
- var panel:=AcceptDialog.new()
- panel.title="Открытие кейса"
- panel.dialog_text="Прокрутка...  3... 2... 1...\n\nВыпало: %s [%s]"%[item[0],item[1]]
- ui.add_child(panel)
- panel.popup_centered(Vector2i(500,260))
- if not infinite_credits:
-  credits=max(0,credits-500)
+func _show_map_select() -> void:
+	_create_menu_panel()
+	var column := _menu_column()
+	_add_menu_title(column, "ВЫБОР ЛОКАЦИИ", "Выбери площадку для исследования")
+	_menu_button(column, "FOUNDRY", func(): _start_exploration("Foundry", false))
+	_menu_button(column, "HARBOR", func(): _start_exploration("Harbor", false))
+	_menu_button(column, "НАЗАД", _show_pause_menu)
 
-func _show_settings()->void:
- _open_panel("НАСТРОЙКИ",false)
- var c:=menu_stack[-1]
- var v:=VBoxContainer.new()
- v.position=Vector2(390,160)
- c.add_child(v)
- var inf:=CheckButton.new()
- inf.text="Бесконечные кредиты"
- inf.button_pressed=infinite_credits
- inf.toggled.connect(func(x): infinite_credits=x)
- v.add_child(inf)
- var vib:=CheckButton.new()
- vib.text="Вибрация"
- vib.button_pressed=false
- v.add_child(vib)
- var sens:=HSlider.new()
- sens.min_value=.001
- sens.max_value=.012
- sens.step=.001
- sens.value=sensitivity
- sens.value_changed.connect(func(x): sensitivity=x)
- v.add_child(Label.new())
- v.add_child(sens)
- var close:=Button.new()
- close.text="ЗАКРЫТЬ"
- close.pressed.connect(_close_panel)
- v.add_child(close)
+func _show_settings() -> void:
+	_create_menu_panel()
+	var column := _menu_column()
+	_add_menu_title(column, "НАСТРОЙКИ", "Чувствительность камеры")
+	var value_label := Label.new()
+	value_label.text = "Чувствительность: %.4f" % sensitivity
+	value_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	column.add_child(value_label)
+	var slider := HSlider.new()
+	slider.min_value = 0.001
+	slider.max_value = 0.009
+	slider.step = 0.0005
+	slider.value = sensitivity
+	slider.value_changed.connect(func(value: float):
+		sensitivity = value
+		value_label.text = "Чувствительность: %.4f" % sensitivity
+		_save_data()
+	)
+	column.add_child(slider)
+	_menu_button(column, "ГОТОВО", func():
+		if is_running:
+			_show_pause_menu()
+		else:
+			_show_main_menu()
+	)
 
-func _open_panel(title_text:String,_buy:bool)->void:
- var p:=Panel.new()
- p.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
- p.modulate=Color("#10161e")
- ui.add_child(p)
- var title:=Label.new()
- title.text=title_text
- title.position=Vector2(0,35)
- title.size=Vector2(1280,60)
- title.horizontal_alignment=HORIZONTAL_ALIGNMENT_CENTER
- title.add_theme_font_size_override("font_size",34)
- p.add_child(title)
- menu_stack.append(p)
+func _handle_player(delta: float) -> void:
+	var direction := Vector3.ZERO
+	if Input.is_action_pressed("move_forward") or touch_state["forward"]:
+		direction.z -= 1.0
+	if Input.is_action_pressed("move_back") or touch_state["back"]:
+		direction.z += 1.0
+	if Input.is_action_pressed("move_left") or touch_state["left"]:
+		direction.x -= 1.0
+	if Input.is_action_pressed("move_right") or touch_state["right"]:
+		direction.x += 1.0
+	direction = direction.normalized()
+	var movement := (player.transform.basis * Vector3(direction.x, 0.0, direction.z)).normalized()
+	player.velocity.x = movement.x * WALK_SPEED
+	player.velocity.z = movement.z * WALK_SPEED
+	if not player.is_on_floor():
+		player.velocity.y -= 18.0 * delta
+	else:
+		player.velocity.y = -0.5
+	player.move_and_slide()
 
-func _close_panel()->void:
- if menu_stack.size()>0:
-  var p:Control=menu_stack.pop_back()
-  p.queue_free()
+func _interact() -> void:
+	if not is_running:
+		return
+	var nearest_index := -1
+	var nearest_distance := INTERACT_DISTANCE
+	for i in range(interactables.size()):
+		var item := interactables[i]
+		if bool(item["done"]):
+			continue
+		var marker: Node3D = item["node"]
+		var distance := player.global_position.distance_to(marker.global_position)
+		if distance < nearest_distance:
+			nearest_distance = distance
+			nearest_index = i
+	if nearest_index == -1:
+		message_text = "Подойди ближе к активному объекту"
+		message_timer = 2.0
+		return
+	interactables[nearest_index]["done"] = true
+	var item_label := str(interactables[nearest_index]["label"])
+	completed.append(map_name + ":" + item_label)
+	var marker_node: Node3D = interactables[nearest_index]["node"]
+	for child in marker_node.get_children():
+		if child is MeshInstance3D:
+			var mat := StandardMaterial3D.new()
+			mat.albedo_color = Color("#6bca9a")
+			mat.emission_enabled = true
+			mat.emission = Color("#6bca9a") * 0.35
+			child.material_override = mat
+	message_text = "Данные получены: " + item_label
+	message_timer = 3.0
+	_save_data()
+	_update_hud()
 
-func _update_hud()->void:
- if status_label==null:return
- status_label.text="%s  |  %.0f s"%[phase.to_upper(),max(0.0,round_time)]
- money_label.text="КРЕДИТЫ: %s"%[("999 999 999" if infinite_credits else str(credits))]
- weapon_label.text="%s  %d/%d"%[weapon_name,ammo,reserve]
+func _update_hud() -> void:
+	if hud_label == null:
+		return
+	hud_label.text = map_name.to_upper() + "  •  ЭКСПЕДИЦИЯ"
+	var count := 0
+	for item in interactables:
+		if bool(item["done"]):
+			count += 1
+	objective_label.text = "Объекты изучены: %d/%d   |   WASD / экран — движение   |   E — осмотр" % [count, interactables.size()]
+	if message_timer > 0.0:
+		prompt_label.text = message_text
+	else:
+		var nearest := _nearest_object_label()
+		prompt_label.text = "Рядом: " + nearest if nearest != "" else "Исследуй локацию и найди светящиеся объекты"
 
-func _handle_player(delta:float)->void:
- if player==null:return
- var dir:=Vector3.ZERO
- if Input.is_action_pressed("move_forward"): dir.z-=1
- if Input.is_action_pressed("move_back"): dir.z+=1
- if Input.is_action_pressed("move_left"): dir.x-=1
- if Input.is_action_pressed("move_right"): dir.x+=1
- dir=dir.normalized()
- player.velocity.x=dir.x*5.0
- player.velocity.z=dir.z*5.0
- if not player.is_on_floor(): player.velocity.y-=18.0*delta
- else: player.velocity.y=0
- if Input.is_action_just_pressed("jump"): player.velocity.y=7.0
- player.move_and_slide()
- if fire_pressed: _fire()
-
-func _fire()->void:
- if phase=="buy" or phase=="end" or ammo<=0:return
- ammo-=1
- var cam:Camera3D=player.get_node("Head/Camera3D")
- var origin:=cam.global_position
- var dir:= -cam.global_transform.basis.z
- var query:=PhysicsRayQueryParameters3D.create(origin,origin+dir*100.0)
- query.collision_mask=4
- var hit:=get_world_3d().direct_space_state.intersect_ray(query)
- if hit:
-  var target=hit.collider
-  if target in bots:
-   _kill_bot(target)
-
-func _reload()->void:
- var w=D.WEAPONS[weapon_name]
- var need=w.mag-ammo
- var take=min(need,reserve)
- ammo+=take
- reserve-=take
-
-func _kill_bot(bot:CharacterBody3D)->void:
- var idx:=bots.find(bot)
- if idx<0:return
- bot.position=Vector3(-20+(idx%5)*10,1,-10+(idx/5)*20)
- credits+=300
- if bots.size()>0:
-  var alive:=0
-  for b in bots:
-   if b.visible:alive+=1
-  if alive<=0:_end_round(true,"Команда противника уничтожена")
-
-func _update_bots(delta:float)->void:
- if player==null:return
- for i in bots.size():
-  var b:=bots[i]
-  var target:=player.global_position
-  if i>=5:target=Vector3(0,1,0)
-  var to:=target-b.global_position
-  if to.length()>2.0:
-   var vel:=to.normalized()*2.2
-   b.velocity.x=vel.x
-   b.velocity.z=vel.z
-  else:
-   b.velocity=Vector3.ZERO
-   if rng.randf()<delta*0.5 and phase!="buy":
-    _bot_shot(b)
-  b.move_and_slide()
-
-func _bot_shot(b:CharacterBody3D)->void:
- var reaction:=rng.randf_range(.3,.8)
- await get_tree().create_timer(reaction).timeout
- if phase=="buy" or player==null:return
- var distance:=b.global_position.distance_to(player.global_position)
- var chance:=.55
- if distance>20:chance=.28
- if distance>35:chance=.12
- if rng.randf()<chance:
-  _end_round(false,"Бот попал")
-
-func _end_round(attack_win:bool,reason:String)->void:
- if phase=="end":return
- phase="end"
- if attack_win:
-  attack_score+=1
-  credits+=3250
- else:
-  defense_score+=1
-  credits+=3000
- status_label.text="%s | Счёт %d:%d"%[reason,attack_score,defense_score]
- if attack_score>=13 or defense_score>=13:
-  await get_tree().create_timer(3.0).timeout
-  attack_score=0
-  defense_score=0
-  round_no=1
-  phase="buy"
-  buy_time=15
-  round_time=115
- else:
-  await get_tree().create_timer(2.5).timeout
-  round_no+=1
-  phase="buy"
-  buy_time=15
-  round_time=115
-
-func _explode_bomb()->void:
- bomb_planted=false
- _end_round(true,"Бомба взорвалась")
-
-func _input(event:InputEvent)->void:
- if event is InputEventMouseMotion and not menu.visible:
-  player.rotate_y(-event.relative.x*sensitivity)
-  var head:Node3D=player.get_node("Head")
-  head.rotation.x=clamp(head.rotation.x-event.relative.y*sensitivity,-1.3,1.3)
- if event is InputEventKey and event.pressed and event.keycode==KEY_B:
-  _show_buy()
- if event is InputEventKey and event.pressed and event.keycode==KEY_E and phase=="live":
-  bomb_planted=true
-  bomb_site="A"
-  bomb_time=40
-  phase="bomb"
-  status_label.text="БОМБА УСТАНОВЛЕНА: A"
+func _nearest_object_label() -> String:
+	if player == null:
+		return ""
+	var nearest_label := ""
+	var nearest_distance := INTERACT_DISTANCE
+	for item in interactables:
+		if bool(item["done"]):
+			continue
+		var marker: Node3D = item["node"]
+		var distance := player.global_position.distance_to(marker.global_position)
+		if distance < nearest_distance:
+			nearest_distance = distance
+			nearest_label = str(item["label"]) + " — нажми E / ОСМОТРЕТЬ"
+	return nearest_label

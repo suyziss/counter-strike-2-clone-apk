@@ -52,6 +52,14 @@ jobs:
       - name: Import and validate project
         run: godot --headless --editor --path . --quit
 
+      - name: Prepare Android debug keystore
+        run: |
+          mkdir -p "$HOME/.android"
+          keytool -genkeypair -v -keystore "$HOME/.android/debug.keystore" -alias androiddebugkey \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass android -keypass android \
+            -dname "CN=Android Debug,O=Android,C=US"
+
       - name: Export Android APK
         run: |
           mkdir -p build

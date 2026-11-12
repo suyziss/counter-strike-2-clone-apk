@@ -1,55 +1,72 @@
 name: Android APK
+
 on:
   push:
-    branches: ["main"]
+    branches: [main, safe-exploration-rebuild]
     tags: ["v*"]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
+    name: Validate Godot project and build APK
     runs-on: ubuntu-latest
     env:
-      GODOT_VERSION: "4.3.4"
+      GODOT_VERSION: "4.3"
     steps:
-      - uses: actions/checkout@v4
-      - name: Install Godot
-        run: |
-          wget -q "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
-          unzip -q "Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
-          sudo mv "Godot_v${GODOT_VERSION}-stable_linux.x86_64" /usr/local/bin/godot
-          sudo chmod +x /usr/local/bin/godot
-      - name: Install export templates
-        run: |
-          wget -q "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_export_templates.tpz"
-          mkdir -p ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable
-          unzip -q "Godot_v${GODOT_VERSION}-stable_export_templates.tpz" -d /tmp/godot-templates
-          cp /tmp/godot-templates/templates/* ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable/
-      - name: Install Android SDK and Java
-        uses: android-actions/setup-android@v3
-      - name: Set up Java
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
-      - name: Create debug keystore
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android export dependencies
         run: |
-          keytool -genkeypair -v -keystore debug.keystore -alias androiddebugkey             -keyalg RSA -keysize 2048 -validity 10000             -storepass android -keypass android             -dname "CN=Android Debug,O=Android,C=US"
-      - name: Import keystore
+          yes | sdkmanager --licenses
+          sdkmanager --install "platform-tools" "platforms;android-34" "build-tools;34.0.0" "ndk;23.2.8568313" "cmake;3.10.2.4988404"
+
+      - name: Install Godot 4.3 stable
         run: |
-          mkdir -p ~/.android
-          cp debug.keystore ~/.android/debug.keystore
-      - name: Export APK
+          wget -q "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip" -O godot.zip
+          unzip -q godot.zip
+          sudo install -m 0755 "Godot_v${GODOT_VERSION}-stable_linux.x86_64" /usr/local/bin/godot
+          godot --version
+
+      - name: Install matching Android export templates
+        run: |
+          wget -q "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_export_templates.tpz" -O templates.tpz
+          mkdir -p "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+          unzip -q templates.tpz -d /tmp/godot-templates
+          cp /tmp/godot-templates/templates/* "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable/"
+
+      - name: Import and validate project
+        run: godot --headless --editor --path . --quit
+
+      - name: Export Android APK
         run: |
           mkdir -p build
-          godot --headless --path . --editor --quit
-          godot --headless --path . --export-debug Android build/CounterStrike2Clone.apk
+          godot --headless --path . --export-debug Android build/FoundryExplorer.apk
+          test -s build/FoundryExplorer.apk
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: CounterStrike2Clone-Android
-          path: build/CounterStrike2Clone.apk
-      - name: Release APK on tag
+          name: FoundryExplorer-Android-APK
+          path: build/FoundryExplorer.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish APK to GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: build/CounterStrike2Clone.apk
+          files: build/FoundryExplorer.apk
+          generate_release_notes: true
